@@ -2,142 +2,122 @@ import java.util.*;
 
 /**
  * The entry point for the Hotel Booking Management System.
- * Use Case 5: Booking Request Intake (FIFO Queue).
+ * Use Case 7: Add-On Service Selection (Business Extensibility).
  *
  * @author Karthik
- * @version 3.0
+ * @version 5.0
  */
 public class Book_My_Stay {
 
     public static void main(String[] args) {
         System.out.println("****************************************");
         System.out.println("Welcome to Book My Stay!");
-        System.out.println("System: Hotel Booking Management (v3.0)");
+        System.out.println("System: Hotel Booking Management (v5.0)");
         System.out.println("****************************************\n");
 
-        // 1. Initialize System Components
+        // 1. Setup Core Services
         RoomInventory inventory = new RoomInventory();
-        inventory.updateAvailability("Single Room", 5);
-        inventory.updateAvailability("Double Room", 3);
+        inventory.updateAvailability("Single Room", 2);
 
-        // Catalog for search/reference
-        Map<String, Room> roomCatalog = Map.of(
-                "Single Room", new SingleRoom(101, 1500.0),
-                "Double Room", new DoubleRoom(201, 2500.0)
-        );
+        BookingService bookingService = new BookingService(inventory);
+        AddOnServiceManager addOnManager = new AddOnServiceManager();
 
-        BookingQueue bookingQueue = new BookingQueue();
+        // 2. Process a Booking (Use Case 6)
+        Reservation guestA = new Reservation("Guest A", "Single Room");
+        String roomID = bookingService.processBooking(guestA);
 
-        // 2. Simulating Incoming Booking Requests (First-Come-First-Served)
-        System.out.println("--- Guest Actions: Submitting Booking Requests ---");
+        // 3. Add-On Selection (Use Case 7)
+        if (roomID != null) {
+            System.out.println("\n--- Adding Optional Services ---");
+            addOnManager.addServiceToBooking(roomID, new AddOn("Breakfast Buffet", 500.0));
+            addOnManager.addServiceToBooking(roomID, new AddOn("Airport Pickup", 1200.0));
 
-        bookingQueue.addRequest(new Reservation("Guest A", "Single Room"));
-        bookingQueue.addRequest(new Reservation("Guest B", "Double Room"));
-        bookingQueue.addRequest(new Reservation("Guest C", "Single Room"));
+            // 4. Calculate and Display Final Bill
+            double basePrice = 1500.0; // Example base price
+            double addOnTotal = addOnManager.getTotalAddOnCost(roomID);
 
-        // 3. Display Queue State
-        // Note: No room allocation or inventory mutation has occurred yet.
-        bookingQueue.displayQueue();
-
-        System.out.println("\n[System Check] Requests are queued in arrival order.");
-        System.out.println("[System Check] Inventory remains unchanged during intake.");
-    }
-}
-
-/**
- * Use Case 5: Reservation Domain Object
- * Represents a guest's intent to book.
- */
-class Reservation {
-    private final String guestName;
-    private final String requestedRoomType;
-    private final long timestamp;
-
-    public Reservation(String guestName, String requestedRoomType) {
-        this.guestName = guestName;
-        this.requestedRoomType = requestedRoomType;
-        this.timestamp = System.currentTimeMillis();
-    }
-
-    public String getGuestName() { return guestName; }
-    public String getRequestedRoomType() { return requestedRoomType; }
-
-    @Override
-    public String toString() {
-        return String.format("Request[Guest: %s, Room: %s]", guestName, requestedRoomType);
-    }
-}
-
-/**
- * Use Case 5: Booking Request Queue
- * Manages intake using FIFO principle to ensure fairness.
- */
-class BookingQueue {
-    // LinkedList implements the Queue interface for FIFO behavior
-    private final Queue<Reservation> requestQueue = new LinkedList<>();
-
-    public void addRequest(Reservation request) {
-        requestQueue.add(request);
-        System.out.println("Added to Queue: " + request);
-    }
-
-    public Reservation nextRequest() {
-        return requestQueue.poll();
-    }
-
-    public void displayQueue() {
-        System.out.println("\n--- Current Booking Queue (Arrival Order) ---");
-        if (requestQueue.isEmpty()) {
-            System.out.println("Queue is empty.");
-        } else {
-            requestQueue.forEach(req -> System.out.println(" > " + req));
+            System.out.println("\n--- Final Invoice for " + roomID + " ---");
+            System.out.println("Base Room Price: ₹" + basePrice);
+            System.out.println("Add-On Services Total: ₹" + addOnTotal);
+            System.out.println("Total Amount Payable: ₹" + (basePrice + addOnTotal));
         }
     }
 }
 
 /**
- * Use Case 3 & 4: Room Inventory (State Holder)
+ * Use Case 7: Add-On Service Model
  */
-class RoomInventory {
-    private final Map<String, Integer> inventoryMap = new HashMap<>();
+class AddOn {
+    private final String name;
+    private final double price;
 
-    public void updateAvailability(String roomType, int count) {
-        inventoryMap.put(roomType, count);
+    public AddOn(String name, double price) {
+        this.name = name;
+        this.price = price;
     }
 
-    public int getAvailableCount(String roomType) {
-        return inventoryMap.getOrDefault(roomType, 0);
+    public String getName() { return name; }
+    public double getPrice() { return price; }
+}
+
+/**
+ * Use Case 7: Add-On Service Manager
+ * Handles the mapping between Reservation IDs and extra services.
+ */
+class AddOnServiceManager {
+    // Map and List Combination: One-to-Many relationship
+    private final Map<String, List<AddOn>> bookingAddOns = new HashMap<>();
+
+    public void addServiceToBooking(String roomID, AddOn service) {
+        bookingAddOns.putIfAbsent(roomID, new ArrayList<>());
+        bookingAddOns.get(roomID).add(service);
+        System.out.println("[ADD-ON] Added " + service.getName() + " to " + roomID);
+    }
+
+    public double getTotalAddOnCost(String roomID) {
+        List<AddOn> services = bookingAddOns.getOrDefault(roomID, Collections.emptyList());
+        // Cost Aggregation Logic
+        return services.stream().mapToDouble(AddOn::getPrice).sum();
     }
 }
 
 /**
- * Domain Models for Rooms
+ * Updated Booking Service to return Room ID for Use Case 7 linkage.
  */
-abstract class Room {
-    private final double price;
-    private final String type;
+class BookingService {
+    private final RoomInventory inventory;
+    private int idCounter = 100;
 
-    public Room(double price, String type) {
-        this.price = price;
-        this.type = type;
+    public BookingService(RoomInventory inventory) { this.inventory = inventory; }
+
+    public String processBooking(Reservation reservation) {
+        String type = reservation.getRequestedRoomType();
+        if (inventory.getAvailableCount(type) > 0) {
+            String roomId = type.substring(0, 1) + (++idCounter);
+            inventory.reduceAvailability(type);
+            System.out.println("[CONFIRMED] " + reservation.getGuestName() + " assigned " + roomId);
+            return roomId;
+        }
+        System.out.println("[FAILED] No availability for " + type);
+        return null;
     }
-
-    public String getType() { return type; }
-    public double getPrice() { return price; }
-    public abstract String getFeatures();
 }
 
-class SingleRoom extends Room {
-    public SingleRoom(int roomNum, double price) { super(price, "Single Room"); }
-    @Override public String getFeatures() { return "1 Single Bed, WiFi"; }
+class Reservation {
+    private final String guestName;
+    private final String requestedRoomType;
+
+    public Reservation(String guestName, String requestedRoomType) {
+        this.guestName = guestName;
+        this.requestedRoomType = requestedRoomType;
+    }
+    public String getGuestName() { return guestName; }
+    public String getRequestedRoomType() { return requestedRoomType; }
 }
 
-class DoubleRoom extends Room {
-    public DoubleRoom(int roomNum, double price) { super(price, "Double Room"); }
-    @Override public String getFeatures() { return "2 Queen Beds, Mini Fridge"; }
-}
-
-class SuiteRoom extends Room {
-    public SuiteRoom(int roomNum, double price) { super(price, "Luxury Suite"); }
-    @Override public String getFeatures() { return "King Bed, Personal Bar"; }
+class RoomInventory {
+    private final Map<String, Integer> inventoryMap = new HashMap<>();
+    public void updateAvailability(String roomType, int count) { inventoryMap.put(roomType, count); }
+    public int getAvailableCount(String roomType) { return inventoryMap.getOrDefault(roomType, 0); }
+    public void reduceAvailability(String roomType) { inventoryMap.put(roomType, getAvailableCount(roomType) - 1); }
 }
