@@ -1,67 +1,95 @@
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * The entry point for the Hotel Booking Management System.
- * Use Case 3: Centralized Room Inventory Management using HashMap.
+ * Use Case 4: Room Search & Availability Check (Read-Only access).
  *
  * @author Karthik
- * @version 1.0
+ * @version 2.0
  */
 public class Book_My_Stay {
 
     public static void main(String[] args) {
         System.out.println("****************************************");
         System.out.println("Welcome to Book My Stay!");
-        System.out.println("System: Hotel Booking Management");
-        System.out.println("Version: 1.0");
+        System.out.println("System: Hotel Booking Management (v2.0)");
         System.out.println("****************************************\n");
 
-        // Initialize Centralized Inventory
+        // 1. Initialize Centralized Inventory (State Holder)
         RoomInventory inventory = new RoomInventory();
-
-        // Register Room Types and their initial counts (Key: Type, Value: Count)
         inventory.updateAvailability("Single Room", 5);
         inventory.updateAvailability("Double Room", 3);
-        inventory.updateAvailability("Luxury Suite", 2);
+        inventory.updateAvailability("Luxury Suite", 0); // Out of stock
 
-        // Create Room Objects
-        Room single = new SingleRoom(101, 1500.0);
-        Room doubleRm = new DoubleRoom(201, 2500.0);
-        Room suite = new SuiteRoom(301, 5000.0);
+        // 2. Define Room Domain Objects (Data Source for Search)
+        Map<String, Room> roomCatalog = new HashMap<>();
+        roomCatalog.put("Single Room", new SingleRoom(101, 1500.0));
+        roomCatalog.put("Double Room", new DoubleRoom(201, 2500.0));
+        roomCatalog.put("Luxury Suite", new SuiteRoom(301, 5000.0));
 
-        // Display current inventory state
-        System.out.println("--- Current Room Inventory ---");
-        displayStatus(single, inventory);
-        displayStatus(doubleRm, inventory);
-        displayStatus(suite, inventory);
+        // 3. Initialize Search Service (Read-Only Logic)
+        SearchService searchService = new SearchService(inventory, roomCatalog);
 
-        // Simulating a booking: Reduce availability for a Single Room
-        System.out.println("\n[Action] Booking 1 Single Room...");
-        inventory.reduceAvailability("Single Room");
+        // 4. Guest Action: Initiate Search
+        System.out.println("--- Guest Search: Finding Available Rooms ---");
+        List<Room> availableOptions = searchService.findAvailableRooms();
 
-        // Show updated state
-        System.out.println("\n--- Updated Inventory ---");
-        displayStatus(single, inventory);
-    }
+        if (availableOptions.isEmpty()) {
+            System.out.println("No rooms available at the moment.");
+        } else {
+            for (Room room : availableOptions) {
+                int count = inventory.getAvailableCount(room.getType());
+                System.out.println("[AVAILABLE] " + room.getType() +
+                        " | Price: ₹" + room.getPrice() +
+                        " | Stock: " + count +
+                        " | Features: " + room.getFeatures());
+            }
+        }
 
-    public static void displayStatus(Room room, RoomInventory inventory) {
-        int available = inventory.getAvailableCount(room.getType());
-        System.out.println("Type: " + room.getType() + " | Available: " + available + " | Price: ₹" + room.getPrice());
+        // 5. System State Verification
+        System.out.println("\n[System Check] Search complete. System state remains unchanged.");
     }
 }
 
 /**
- * Use Case 3: Centralized Inventory Logic
- * Encapsulates a HashMap to manage room counts efficiently.
+ * Use Case 4: Search Service
+ * Separates Read-Only search logic from state-mutating booking logic.
+ */
+class SearchService {
+    private final RoomInventory inventory;
+    private final Map<String, Room> roomCatalog;
+
+    public SearchService(RoomInventory inventory, Map<String, Room> roomCatalog) {
+        this.inventory = inventory;
+        this.roomCatalog = roomCatalog;
+    }
+
+    /**
+     * Filters and retrieves only room types with availability > 0.
+     * Implements Validation Logic and Defensive Programming.
+     */
+    public List<Room> findAvailableRooms() {
+        List<Room> results = new ArrayList<>();
+
+        for (Room room : roomCatalog.values()) {
+            // Read-only check from inventory
+            if (inventory.getAvailableCount(room.getType()) > 0) {
+                results.add(room);
+            }
+        }
+        return results;
+    }
+}
+
+/**
+ * Use Case 3 & 4: Centralized Inventory
+ * Manages the current state of room counts.
  */
 class RoomInventory {
-    // HashMap provides O(1) lookup and avoids scattered variables
-    private Map<String, Integer> inventoryMap;
-
-    public RoomInventory() {
-        this.inventoryMap = new HashMap<>();
-    }
+    private Map<String, Integer> inventoryMap = new HashMap<>();
 
     public void updateAvailability(String roomType, int count) {
         inventoryMap.put(roomType, count);
@@ -75,14 +103,12 @@ class RoomInventory {
         int currentCount = getAvailableCount(roomType);
         if (currentCount > 0) {
             inventoryMap.put(roomType, currentCount - 1);
-        } else {
-            System.out.println("Error: No " + roomType + "s left!");
         }
     }
 }
 
 /**
- * Abstract Class: Domain Model for a Room
+ * Domain Model for Room types.
  */
 abstract class Room {
     private int roomNumber;
