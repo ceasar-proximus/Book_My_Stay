@@ -2,10 +2,10 @@ import java.util.*;
 
 /**
  * The entry point for the Hotel Booking Management System.
- * Use Case 7: Add-On Service Selection (Business Extensibility).
+ * Combined Use Case 6 (Allocation) and Use Case 7 (Add-On Services).
  *
  * @author Karthik
- * @version 5.0
+ * @version 5.0 (Integrated)
  */
 public class Book_My_Stay {
 
@@ -18,29 +18,37 @@ public class Book_My_Stay {
         // 1. Setup Core Services
         RoomInventory inventory = new RoomInventory();
         inventory.updateAvailability("Single Room", 2);
+        inventory.updateAvailability("Double Room", 1);
 
         BookingService bookingService = new BookingService(inventory);
         AddOnServiceManager addOnManager = new AddOnServiceManager();
+        BookingQueue bookingQueue = new BookingQueue();
 
-        // 2. Process a Booking (Use Case 6)
-        Reservation guestA = new Reservation("Guest A", "Single Room");
-        String roomID = bookingService.processBooking(guestA);
+        // 2. Intake: Guests submit requests
+        bookingQueue.addRequest(new Reservation("Guest A", "Single Room"));
+        bookingQueue.addRequest(new Reservation("Guest B", "Single Room"));
+        bookingQueue.addRequest(new Reservation("Guest C", "Double Room"));
 
-        // 3. Add-On Selection (Use Case 7)
-        if (roomID != null) {
-            System.out.println("\n--- Adding Optional Services ---");
-            addOnManager.addServiceToBooking(roomID, new AddOn("Breakfast Buffet", 500.0));
-            addOnManager.addServiceToBooking(roomID, new AddOn("Airport Pickup", 1200.0));
+        // 3. Process Allocation and Add-Ons
+        System.out.println("--- Processing Bookings & Services ---");
+        while (bookingQueue.hasRequests()) {
+            Reservation request = bookingQueue.nextRequest();
+            String roomID = bookingService.processBooking(request);
 
-            // 4. Calculate and Display Final Bill
-            double basePrice = 1500.0; // Example base price
-            double addOnTotal = addOnManager.getTotalAddOnCost(roomID);
-
-            System.out.println("\n--- Final Invoice for " + roomID + " ---");
-            System.out.println("Base Room Price: ₹" + basePrice);
-            System.out.println("Add-On Services Total: ₹" + addOnTotal);
-            System.out.println("Total Amount Payable: ₹" + (basePrice + addOnTotal));
+            // If booking was successful, add a default service (Example: Breakfast)
+            if (roomID != null) {
+                addOnManager.addServiceToBooking(roomID, new AddOn("Breakfast Buffet", 500.0));
+                
+                // Calculate Final Bill
+                double basePrice = 1500.0; 
+                double addOnTotal = addOnManager.getTotalAddOnCost(roomID);
+                
+                System.out.println("Final Invoice for " + roomID + ": ₹" + (basePrice + addOnTotal));
+                System.out.println("--------------------------------------");
+            }
         }
+        
+        bookingService.displayAllocations();
     }
 }
 
@@ -55,17 +63,14 @@ class AddOn {
         this.name = name;
         this.price = price;
     }
-
     public String getName() { return name; }
     public double getPrice() { return price; }
 }
 
 /**
  * Use Case 7: Add-On Service Manager
- * Handles the mapping between Reservation IDs and extra services.
  */
 class AddOnServiceManager {
-    // Map and List Combination: One-to-Many relationship
     private final Map<String, List<AddOn>> bookingAddOns = new HashMap<>();
 
     public void addServiceToBooking(String roomID, AddOn service) {
@@ -76,16 +81,16 @@ class AddOnServiceManager {
 
     public double getTotalAddOnCost(String roomID) {
         List<AddOn> services = bookingAddOns.getOrDefault(roomID, Collections.emptyList());
-        // Cost Aggregation Logic
         return services.stream().mapToDouble(AddOn::getPrice).sum();
     }
 }
 
 /**
- * Updated Booking Service to return Room ID for Use Case 7 linkage.
+ * Use Case 6: Booking Service
  */
 class BookingService {
     private final RoomInventory inventory;
+    private final Map<String, Set<String>> allocatedRooms = new HashMap<>();
     private int idCounter = 100;
 
     public BookingService(RoomInventory inventory) { this.inventory = inventory; }
@@ -94,13 +99,29 @@ class BookingService {
         String type = reservation.getRequestedRoomType();
         if (inventory.getAvailableCount(type) > 0) {
             String roomId = type.substring(0, 1) + (++idCounter);
+            
+            allocatedRooms.putIfAbsent(type, new HashSet<>());
+            allocatedRooms.get(type).add(roomId);
             inventory.reduceAvailability(type);
+            
             System.out.println("[CONFIRMED] " + reservation.getGuestName() + " assigned " + roomId);
             return roomId;
         }
-        System.out.println("[FAILED] No availability for " + type);
+        System.out.println("[FAILED] No availability for " + reservation.getGuestName());
         return null;
     }
+
+    public void displayAllocations() {
+        System.out.println("\n--- Final Allocation Report ---");
+        allocatedRooms.forEach((type, ids) -> System.out.println(type + " Assignments: " + ids));
+    }
+}
+
+class BookingQueue {
+    private final Queue<Reservation> requestQueue = new LinkedList<>();
+    public void addRequest(Reservation request) { requestQueue.add(request); }
+    public Reservation nextRequest() { return requestQueue.poll(); }
+    public boolean hasRequests() { return !requestQueue.isEmpty(); }
 }
 
 class Reservation {
@@ -118,6 +139,8 @@ class Reservation {
 class RoomInventory {
     private final Map<String, Integer> inventoryMap = new HashMap<>();
     public void updateAvailability(String roomType, int count) { inventoryMap.put(roomType, count); }
-    public int getAvailableCount(String roomType) { return inventoryMap.getOrDefault(roomType, 0); }
-    public void reduceAvailability(String roomType) { inventoryMap.put(roomType, getAvailableCount(roomType) - 1); }
+    public int getAvailableCount(String type) { return inventoryMap.getOrDefault(type, 0); }
+    public void reduceAvailability(String type) {
+        inventoryMap.put(type, inventoryMap.get(type) - 1);
+    }
 }
