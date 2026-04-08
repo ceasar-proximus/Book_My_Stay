@@ -1,96 +1,114 @@
 import java.util.*;
 
 /**
- * The entry point for the Hotel Booking Management System.
- * Combined Use Case 6 (Allocation) and Use Case 7 (Add-On Services).
+ * Use Case 8: Booking History & Reporting (Operational Visibility).
+ * Integrated into the Hotel Booking Management System.
  *
  * @author Karthik
- * @version 5.0 (Integrated)
+ * @version 6.0
  */
 public class Book_My_Stay {
 
     public static void main(String[] args) {
         System.out.println("****************************************");
         System.out.println("Welcome to Book My Stay!");
-        System.out.println("System: Hotel Booking Management (v5.0)");
+        System.out.println("System: Hotel Booking Management (v6.0)");
         System.out.println("****************************************\n");
 
-        // 1. Setup Core Services
+        // 1. Setup Services
         RoomInventory inventory = new RoomInventory();
         inventory.updateAvailability("Single Room", 2);
-        inventory.updateAvailability("Double Room", 1);
 
         BookingService bookingService = new BookingService(inventory);
-        AddOnServiceManager addOnManager = new AddOnServiceManager();
-        BookingQueue bookingQueue = new BookingQueue();
+        BookingHistory history = new BookingHistory();
+        BookingReportService reportService = new BookingReportService(history);
 
-        // 2. Intake: Guests submit requests
-        bookingQueue.addRequest(new Reservation("Guest A", "Single Room"));
-        bookingQueue.addRequest(new Reservation("Guest B", "Single Room"));
-        bookingQueue.addRequest(new Reservation("Guest C", "Double Room"));
+        // 2. Simulate Bookings
+        processAndArchive(new Reservation("Guest A", "Single Room"), bookingService, history);
+        processAndArchive(new Reservation("Guest B", "Single Room"), bookingService, history);
+        processAndArchive(new Reservation("Guest C", "Single Room"), bookingService, history); // Should fail
 
-        // 3. Process Allocation and Add-Ons
-        System.out.println("--- Processing Bookings & Services ---");
-        while (bookingQueue.hasRequests()) {
-            Reservation request = bookingQueue.nextRequest();
-            String roomID = bookingService.processBooking(request);
+        // 3. Admin Reporting (Use Case 8)
+        System.out.println("\n--- Admin: Generating Operational Reports ---");
+        reportService.printSummaryReport();
+        reportService.printDetailedHistory();
+    }
 
-            // If booking was successful, add a default service (Example: Breakfast)
-            if (roomID != null) {
-                addOnManager.addServiceToBooking(roomID, new AddOn("Breakfast Buffet", 500.0));
-                
-                // Calculate Final Bill
-                double basePrice = 1500.0; 
-                double addOnTotal = addOnManager.getTotalAddOnCost(roomID);
-                
-                System.out.println("Final Invoice for " + roomID + ": ₹" + (basePrice + addOnTotal));
-                System.out.println("--------------------------------------");
-            }
+    /**
+     * Helper to link confirmation flow with historical tracking.
+     */
+    private static void processAndArchive(Reservation res, BookingService service, BookingHistory history) {
+        String roomID = service.processBooking(res);
+        if (roomID != null) {
+            history.recordBooking(res, roomID);
         }
-        
-        bookingService.displayAllocations();
     }
 }
 
 /**
- * Use Case 7: Add-On Service Model
+ * Use Case 8: Booking History
+ * Maintains a persistent-style record of confirmed transactions in insertion order.
  */
-class AddOn {
-    private final String name;
-    private final double price;
+class BookingHistory {
+    // List preserves the chronological order of confirmations
+    private final List<HistoricalRecord> records = new ArrayList<>();
 
-    public AddOn(String name, double price) {
-        this.name = name;
-        this.price = price;
+    public void recordBooking(Reservation res, String roomID) {
+        records.add(new HistoricalRecord(res.getGuestName(), roomID, res.getRequestedRoomType(), new Date()));
     }
-    public String getName() { return name; }
-    public double getPrice() { return price; }
+
+    public List<HistoricalRecord> getAllRecords() {
+        // Return unmodifiable list to ensure reporting does not modify stored data
+        return Collections.unmodifiableList(records);
+    }
+
+    // Inner class to represent a completed transaction
+    public static class HistoricalRecord {
+        private final String guest;
+        private final String roomID;
+        private final String type;
+        private final Date timestamp;
+
+        public HistoricalRecord(String guest, String roomID, String type, Date timestamp) {
+            this.guest = guest;
+            this.roomID = roomID;
+            this.type = type;
+            this.timestamp = timestamp;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("[%s] %s booked %s (Room: %s)", timestamp, guest, type, roomID);
+        }
+    }
 }
 
 /**
- * Use Case 7: Add-On Service Manager
+ * Use Case 8: Booking Report Service
+ * Decouples reporting logic from the data storage.
  */
-class AddOnServiceManager {
-    private final Map<String, List<AddOn>> bookingAddOns = new HashMap<>();
+class BookingReportService {
+    private final BookingHistory history;
 
-    public void addServiceToBooking(String roomID, AddOn service) {
-        bookingAddOns.putIfAbsent(roomID, new ArrayList<>());
-        bookingAddOns.get(roomID).add(service);
-        System.out.println("[ADD-ON] Added " + service.getName() + " to " + roomID);
+    public BookingReportService(BookingHistory history) {
+        this.history = history;
     }
 
-    public double getTotalAddOnCost(String roomID) {
-        List<AddOn> services = bookingAddOns.getOrDefault(roomID, Collections.emptyList());
-        return services.stream().mapToDouble(AddOn::getPrice).sum();
+    public void printSummaryReport() {
+        long total = history.getAllRecords().size();
+        System.out.println(">> Total Successful Bookings: " + total);
+    }
+
+    public void printDetailedHistory() {
+        System.out.println(">> Audit Trail (Chronological):");
+        history.getAllRecords().forEach(System.out::println);
     }
 }
 
-/**
- * Use Case 6: Booking Service
- */
+/* --- Core Logic from Previous Use Cases (Maintained for context) --- */
+
 class BookingService {
     private final RoomInventory inventory;
-    private final Map<String, Set<String>> allocatedRooms = new HashMap<>();
     private int idCounter = 100;
 
     public BookingService(RoomInventory inventory) { this.inventory = inventory; }
@@ -99,29 +117,13 @@ class BookingService {
         String type = reservation.getRequestedRoomType();
         if (inventory.getAvailableCount(type) > 0) {
             String roomId = type.substring(0, 1) + (++idCounter);
-            
-            allocatedRooms.putIfAbsent(type, new HashSet<>());
-            allocatedRooms.get(type).add(roomId);
             inventory.reduceAvailability(type);
-            
             System.out.println("[CONFIRMED] " + reservation.getGuestName() + " assigned " + roomId);
             return roomId;
         }
         System.out.println("[FAILED] No availability for " + reservation.getGuestName());
         return null;
     }
-
-    public void displayAllocations() {
-        System.out.println("\n--- Final Allocation Report ---");
-        allocatedRooms.forEach((type, ids) -> System.out.println(type + " Assignments: " + ids));
-    }
-}
-
-class BookingQueue {
-    private final Queue<Reservation> requestQueue = new LinkedList<>();
-    public void addRequest(Reservation request) { requestQueue.add(request); }
-    public Reservation nextRequest() { return requestQueue.poll(); }
-    public boolean hasRequests() { return !requestQueue.isEmpty(); }
 }
 
 class Reservation {
