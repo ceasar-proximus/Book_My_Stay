@@ -1,125 +1,140 @@
 import java.util.*;
 
 /**
- * Use Case 9: Error Handling & Validation (System Reliability).
- * Introduces structured guarding and custom exceptions.
+ * Use Case 10: Booking Cancellation & Inventory Rollback.
+ * Introduces state reversal using a Stack-based LIFO logic.
  *
  * @author Karthik
- * @version 7.0
+ * @version 8.0
  */
 public class Book_My_Stay {
 
     public static void main(String[] args) {
         System.out.println("****************************************");
         System.out.println("Welcome to Book My Stay!");
-        System.out.println("System: Reliability & Validation (v7.0)");
+        System.out.println("System: Rollback & Recovery (v8.0)");
         System.out.println("****************************************\n");
 
+        // 1. Setup Services
         RoomInventory inventory = new RoomInventory();
-        inventory.updateAvailability("Single Room", 1);
+        inventory.updateAvailability("Single Room", 2);
 
         BookingService bookingService = new BookingService(inventory);
+        CancellationService cancelService = new CancellationService(inventory, bookingService);
 
-        // Test Cases for Validation
-        Reservation[] testRequests = {
-                new Reservation("", "Single Room"),          // Invalid: Empty Name
-                new Reservation("Guest A", "Penthouse"),     // Invalid: Non-existent Type
-                new Reservation("Guest B", "Single Room"),   // Valid
-                new Reservation("Guest C", "Single Room")    // Invalid: Out of Stock
-        };
+        try {
+            // 2. Perform Bookings
+            String id1 = bookingService.processBooking(new Reservation("Guest A", "Single Room"));
+            String id2 = bookingService.processBooking(new Reservation("Guest B", "Single Room"));
 
-        for (Reservation res : testRequests) {
-            try {
-                System.out.println("Processing: " + res.getGuestName() + " for " + res.getRequestedRoomType());
-                bookingService.processBooking(res);
-            } catch (BookingValidationException e) {
-                // Graceful Failure Handling
-                System.err.println("[VALIDATION ERROR] " + e.getMessage());
-            } catch (Exception e) {
-                System.err.println("[SYSTEM ERROR] An unexpected error occurred.");
-            }
-            System.out.println("--------------------------------------");
+            System.out.println("\nCurrent Inventory: " + inventory.getAvailableCount("Single Room"));
+
+            // 3. Perform Cancellation (Rollback)
+            System.out.println("\n--- Initiating Cancellation ---");
+            cancelService.cancelBooking(id1, "Single Room");
+
+            // 4. Verify System State
+            System.out.println("Inventory after rollback: " + inventory.getAvailableCount("Single Room"));
+
+            // 5. Re-booking using the rolled-back ID
+            System.out.println("\n--- Processing New Booking ---");
+            bookingService.processBooking(new Reservation("Guest C", "Single Room"));
+
+        } catch (Exception e) {
+            System.err.println("[ERROR] " + e.getMessage());
         }
     }
 }
 
 /**
- * Custom Exception for Domain-Specific Failures
+ * Use Case 10: Cancellation Service
+ * Handles inventory restoration and room ID release.
  */
-class BookingValidationException extends Exception {
-    public BookingValidationException(String message) {
-        super(message);
+class CancellationService {
+    private final RoomInventory inventory;
+    private final BookingService bookingService;
+
+    public CancellationService(RoomInventory inventory, BookingService bookingService) {
+        this.inventory = inventory;
+        this.bookingService = bookingService;
+    }
+
+    public void cancelBooking(String roomID, String roomType) throws BookingValidationException {
+        // 1. Validate existence in active allocations
+        if (!bookingService.getActiveAllocations().contains(roomID)) {
+            throw new BookingValidationException("Cancellation Failed: Room ID " + roomID + " is not active.");
+        }
+
+        // 2. Perform Rollback: Release ID back to pool
+        bookingService.releaseRoomID(roomID);
+
+        // 3. State Reversal: Restore Inventory
+        inventory.restoreInventory(roomType);
+
+        System.out.println("[CANCELLED] Room " + roomID + " released and inventory restored.");
     }
 }
 
-/**
- * Use Case 9: Guarded Booking Service
- */
 class BookingService {
     private final RoomInventory inventory;
+    private final Set<String> activeAllocations = new HashSet<>();
+    // Stack used for LIFO rollback logic (tracking released IDs)
+    private final Stack<String> releasedIds = new Stack<>();
     private int idCounter = 100;
 
     public BookingService(RoomInventory inventory) { this.inventory = inventory; }
 
     public String processBooking(Reservation res) throws BookingValidationException {
-        // 1. Fail-Fast Input Validation
-        if (res.getGuestName() == null || res.getGuestName().trim().isEmpty()) {
-            throw new BookingValidationException("Guest name cannot be empty.");
-        }
-
         String type = res.getRequestedRoomType();
-
-        // 2. Validate Room Type Existence
-        if (!inventory.hasRoomType(type)) {
-            throw new BookingValidationException("Room type '" + type + "' does not exist in inventory.");
-        }
-
-        // 3. Guard System State (Check Availability)
         if (inventory.getAvailableCount(type) <= 0) {
-            throw new BookingValidationException("No rooms available for type: " + type);
+            throw new BookingValidationException("No rooms available for " + type);
         }
 
-        // 4. Proceed with Valid State
-        String roomId = type.substring(0, 1) + (++idCounter);
+        // Reuse an ID from the rollback stack if available, otherwise generate new
+        String roomId = !releasedIds.isEmpty() ? releasedIds.pop() : type.substring(0, 1) + (++idCounter);
+
         inventory.reduceAvailability(type);
-        System.out.println("[SUCCESS] Room " + roomId + " assigned to " + res.getGuestName());
+        activeAllocations.add(roomId);
+
+        System.out.println("[SUCCESS] " + res.getGuestName() + " assigned Room: " + roomId);
         return roomId;
     }
+
+    public void releaseRoomID(String roomID) {
+        activeAllocations.remove(roomID);
+        releasedIds.push(roomID); // LIFO: Last released is the first to be reused
+    }
+
+    public Set<String> getActiveAllocations() { return activeAllocations; }
 }
 
 class RoomInventory {
     private final Map<String, Integer> inventoryMap = new HashMap<>();
 
-    public void updateAvailability(String roomType, int count) {
-        inventoryMap.put(roomType, count);
+    public void updateAvailability(String roomType, int count) { inventoryMap.put(roomType, count); }
+    public int getAvailableCount(String type) { return inventoryMap.getOrDefault(type, 0); }
+
+    public void reduceAvailability(String type) {
+        inventoryMap.put(type, inventoryMap.get(type) - 1);
     }
 
-    public boolean hasRoomType(String type) {
-        return inventoryMap.containsKey(type);
-    }
-
-    public int getAvailableCount(String type) {
-        return inventoryMap.getOrDefault(type, 0);
-    }
-
-    public void reduceAvailability(String type) throws BookingValidationException {
-        int current = getAvailableCount(type);
-        // Integrity check to prevent negative inventory
-        if (current <= 0) {
-            throw new BookingValidationException("Critical Error: Inventory synchronization failure.");
-        }
-        inventoryMap.put(type, current - 1);
+    public void restoreInventory(String type) {
+        inventoryMap.put(type, inventoryMap.get(type) + 1);
     }
 }
 
+/* --- Standard Domain Objects maintained for continuity --- */
 class Reservation {
     private final String guestName;
     private final String requestedRoomType;
-
     public Reservation(String guestName, String requestedRoomType) {
         this.guestName = guestName;
         this.requestedRoomType = requestedRoomType;
     }
     public String getGuestName() { return guestName; }
     public String getRequestedRoomType() { return requestedRoomType; }
+}
+
+class BookingValidationException extends Exception {
+    public BookingValidationException(String message) { super(message); }
 }
